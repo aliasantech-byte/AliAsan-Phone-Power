@@ -1,0 +1,19 @@
+.gradle/
+.idea/
+build/
+**/build/
+local.properties
+
+*.iml
+*.apk
+*.aab
+
+# Signing keys and passwords
+*.jks
+*.keystore
+keystore.properties
+
+# Temporary files
+*.tmp
+*.log
+.DS_Store
