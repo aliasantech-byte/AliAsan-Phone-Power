@@ -2,215 +2,403 @@
 package com.aliasan.phonepower
 
 import android.app.Activity
-import android.os.Bundle
+import android.app.ActivityManager
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorManager
+import android.hardware.camera2.CameraManager
 import android.os.Build
+import android.os.Bundle
+import android.os.BatteryManager
+import android.os.Environment
+import android.os.StatFs
 import android.graphics.Color
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Button
 import java.io.File
 import java.util.Locale
 
 class MainActivity : Activity() {
 
     private val blue = Color.rgb(25, 80, 160)
-    private lateinit var testButton: Button
-    private lateinit var testResult: TextView
+    private val dark = Color.rgb(35, 45, 60)
+
+    data class Game(
+        val name: String,
+        val android: Int? = null,
+        val ram: Double? = null,
+        val storage: Double? = null,
+        val gl: Int? = null,
+        val cores: Int? = null,
+        val bit64: Boolean = false,
+        val extra: String = ""
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val scrollView = ScrollView(this)
-        scrollView.setBackgroundColor(Color.rgb(245, 247, 250))
+        val scroll = ScrollView(this)
+        scroll.setBackgroundColor(Color.rgb(245, 247, 250))
 
-        val layout = LinearLayout(this)
-        layout.orientation = LinearLayout.VERTICAL
-        layout.setPadding(20, 25, 20, 25)
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.VERTICAL
+        root.setPadding(18, 22, 18, 22)
 
-        val title = TextView(this)
-        title.text = "توان‌سنج گوشی علی آسان"
-        title.textSize = 25f
-        title.setTextColor(blue)
-        title.gravity = Gravity.CENTER
-        title.setPadding(0, 10, 0, 8)
+        addTitle(root, "توان‌سنج گوشی علی آسان")
+        addText(root, "شناسنامه کامل گوشی و بررسی سازگاری بازی‌ها")
 
-        val subtitle = TextView(this)
-        subtitle.text = "مشخصات و تست قدرت گوشی"
-        subtitle.textSize = 16f
-        subtitle.setTextColor(Color.DKGRAY)
-        subtitle.gravity = Gravity.CENTER
-        subtitle.setPadding(0, 0, 0, 25)
+        addSection(root, "مشخصات عمومی")
+        addRow(root, "برند", Build.MANUFACTURER)
+        addRow(root, "مدل", Build.MODEL)
+        addRow(root, "نام دستگاه", Build.DEVICE)
+        addRow(root, "نام محصول", Build.PRODUCT)
+        addRow(root, "شناسه سخت‌افزار", Build.HARDWARE)
+        addRow(root, "نسخه اندروید", Build.VERSION.RELEASE)
+        addRow(root, "سطح API", Build.VERSION.SDK_INT.toString())
+        addRow(root, "نسخه بیلد", Build.DISPLAY)
 
-        layout.addView(title)
-        layout.addView(subtitle)
-
-        addInfo(layout, "برند گوشی", Build.MANUFACTURER)
-        addInfo(layout, "مدل گوشی", Build.MODEL)
-        addInfo(layout, "نسخه اندروید", Build.VERSION.RELEASE)
-        addInfo(layout, "شماره API", Build.VERSION.SDK_INT.toString())
-
-        addInfo(
-            layout,
-            "تعداد هسته پردازنده",
+        addSection(root, "پردازنده و حافظه")
+        addRow(
+            root,
+            "تعداد هسته‌های قابل استفاده",
             Runtime.getRuntime().availableProcessors().toString()
         )
+        addRow(root, "معماری پردازنده", getAbi())
+        addRow(root, "پشتیبانی ۶۴ بیتی", if (is64Bit()) "بله" else "خیر یا نامشخص")
+        addRow(root, "حافظه RAM کل", formatGb(getRamGb()))
+        addRow(root, "فضای ذخیره‌سازی آزاد", formatGb(getFreeStorageGb()))
 
-        addInfo(layout, "نام پردازنده", getCpuName())
-        addInfo(
-            layout,
-            "معماری پردازنده",
-            System.getProperty("os.arch") ?: "نامشخص"
+        addSection(root, "صفحه‌نمایش و گرافیک")
+        val metrics = resources.displayMetrics
+        addRow(
+            root,
+            "وضوح صفحه",
+            "${metrics.widthPixels} × ${metrics.heightPixels}"
         )
-        addInfo(layout, "حافظه RAM کل", getTotalRam())
+        addRow(root, "تراکم صفحه", "${metrics.densityDpi} DPI")
+        addRow(root, "اندازه چگالی", String.format(Locale.US, "%.2f", metrics.density))
+        addRow(root, "نسخه OpenGL ES", getGlVersion())
+        addRow(root, "مدل دقیق GPU", "در این نسخه هنوز شناسایی نشده")
 
-        val sectionTitle = TextView(this)
-        sectionTitle.text = "تست قدرت پردازنده CPU"
-        sectionTitle.textSize = 21f
-        sectionTitle.setTextColor(blue)
-        sectionTitle.gravity = Gravity.CENTER
-        sectionTitle.setPadding(0, 25, 0, 12)
+        addSection(root, "باتری و تجهیزات")
+        addRow(root, "وضعیت باتری", getBatteryInfo())
+        addRow(root, "تعداد دوربین‌ها", getCameraCount())
+        addRow(root, "تعداد سنسورها", getSensorCount())
+        addRow(root, "نام سنسورها", getSensorNames())
+        addRow(root, "Wi-Fi", supported("android.hardware.wifi"))
+        addRow(root, "بلوتوث", supported("android.hardware.bluetooth"))
+        addRow(root, "شبکه موبایل", supported("android.hardware.telephony"))
 
-        layout.addView(sectionTitle)
+        addSection(root, "بررسی سازگاری بازی‌ها")
+        addText(
+            root,
+            "نتایج بر اساس حداقل نیازمندی‌های منتشرشده است؛ " +
+            "سازگاری نهایی و سرعت اجرای بازی باید جداگانه بررسی شود."
+        )
 
-        testButton = Button(this)
-        testButton.text = "شروع تست پردازنده"
-        testButton.textSize = 17f
-        testButton.isAllCaps = false
+        addGameCategory(root, "تیراندازی و آنلاین", listOf(
+            Game("PUBG Mobile", extra = "نیازمند بررسی مشخصات رسمی نسخه فعلی"),
+            Game("Free Fire", android = 4, ram = 1.0, storage = 1.5),
+            Game("Call of Duty Mobile", android = 6, ram = 2.0),
+            Game("Standoff 2", ram = 2.0, storage = 2.0,
+                extra = "رم پیشنهادی ۴ گیگابایت یا بیشتر")
+        ))
 
-        layout.addView(testButton)
+        addGameCategory(root, "فوتبال", listOf(
+            Game("eFootball", android = 7, ram = 2.0,
+                cores = 4, bit64 = true),
+            Game("EA SPORTS FC Mobile", android = 6, ram = 1.7,
+                cores = 4, extra = "مدل GPU و سرعت CPU هم باید بررسی شود"),
+            Game("Dream League Soccer",
+                extra = "نیازمند بررسی مشخصات رسمی نسخه فعلی")
+        ))
 
-        testResult = TextView(this)
-        testResult.text = "برای شروع، دکمه بالا را لمس کن."
-        testResult.textSize = 17f
-        testResult.setTextColor(Color.DKGRAY)
-        testResult.gravity = Gravity.CENTER
-        testResult.setPadding(10, 20, 10, 20)
+        addGameCategory(root, "مسابقه‌ای و رانندگی", listOf(
+            Game("Asphalt Legends", android = 9,
+                extra = "سخت‌افزار گرافیکی هم باید بررسی شود"),
+            Game("CarX Street",
+                extra = "نیازمند بررسی مشخصات رسمی نسخه فعلی"),
+            Game("Real Racing 3",
+                extra = "نیازمند بررسی مشخصات رسمی نسخه فعلی")
+        ))
 
-        layout.addView(testResult)
+        addGameCategory(root, "ماجراجویی و جهان‌باز", listOf(
+            Game("Genshin Impact", android = 10, ram = 4.0,
+                storage = 40.0, bit64 = true,
+                extra = "GPU غیر PowerVR و چیپست مناسب نیز لازم است"),
+            Game("Minecraft", android = 9, ram = 1.1,
+                storage = 1.0, gl = 31),
+            Game("Roblox", android = 8, gl = 30)
+        ))
 
-        val footer = TextView(this)
-        footer.text = "سریع و آسان | علی آسان"
-        footer.textSize = 14f
-        footer.setTextColor(blue)
-        footer.gravity = Gravity.CENTER
-        footer.setPadding(0, 25, 0, 10)
+        addSection(root, "علی آسان")
+        addText(root, "سریع و آسان | شناسایی و بررسی گوشی")
 
-        layout.addView(footer)
-
-        testButton.setOnClickListener {
-            startCpuTest()
-        }
-
-        scrollView.addView(layout)
-        setContentView(scrollView)
+        scroll.addView(root)
+        setContentView(scroll)
     }
 
-    private fun addInfo(
-        layout: LinearLayout,
+    private fun addTitle(root: LinearLayout, text: String) {
+        val view = TextView(this)
+        view.text = text
+        view.textSize = 25f
+        view.setTextColor(blue)
+        view.gravity = Gravity.CENTER
+        view.setPadding(0, 12, 0, 10)
+        root.addView(view)
+    }
+
+    private fun addSection(root: LinearLayout, text: String) {
+        val view = TextView(this)
+        view.text = text
+        view.textSize = 20f
+        view.setTextColor(blue)
+        view.setPadding(0, 24, 0, 12)
+        root.addView(view)
+    }
+
+    private fun addText(root: LinearLayout, text: String) {
+        val view = TextView(this)
+        view.text = text
+        view.textSize = 15f
+        view.setTextColor(dark)
+        view.setPadding(4, 8, 4, 12)
+        root.addView(view)
+    }
+
+    private fun addRow(
+        root: LinearLayout,
         label: String,
         value: String
     ) {
         val card = LinearLayout(this)
         card.orientation = LinearLayout.VERTICAL
-        card.setPadding(16, 12, 16, 12)
+        card.setPadding(14, 10, 14, 10)
         card.setBackgroundColor(Color.WHITE)
 
-        val title = TextView(this)
-        title.text = label
-        title.textSize = 14f
-        title.setTextColor(Color.GRAY)
+        val heading = TextView(this)
+        heading.text = label
+        heading.textSize = 13f
+        heading.setTextColor(Color.GRAY)
 
         val result = TextView(this)
         result.text = value
-        result.textSize = 18f
-        result.setTextColor(Color.rgb(35, 45, 60))
-        result.setPadding(0, 5, 0, 0)
+        result.textSize = 16f
+        result.setTextColor(dark)
+        result.setPadding(0, 4, 0, 0)
 
-        card.addView(title)
+        card.addView(heading)
         card.addView(result)
 
         val params = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         )
-        params.bottomMargin = 12
+        params.bottomMargin = 8
 
-        layout.addView(card, params)
+        root.addView(card, params)
     }
 
-    private fun startCpuTest() {
-        testButton.isEnabled = false
-        testButton.text = "در حال تست..."
-        testResult.text = "لطفاً صبر کن؛ پردازنده در حال آزمایش است."
+    private fun addGameCategory(
+        root: LinearLayout,
+        category: String,
+        games: List<Game>
+    ) {
+        addSection(root, category)
 
-        Thread {
-            val iterations = 2_000_000
-            var value = 0L
-
-            val startTime = System.nanoTime()
-
-            for (i in 1..iterations) {
-                value = value xor (i.toLong() * 31L)
-                value = (value shl 7) or (value ushr 57)
-                value += i.toLong()
-            }
-
-            val elapsedTime =
-                (System.nanoTime() - startTime) / 1_000_000.0
-
-            val seconds = elapsedTime / 1000.0
-            val speed = iterations / seconds / 1_000_000.0
-
-            runOnUiThread {
-                testResult.text = String.format(
-                    Locale.US,
-                    "تست با موفقیت انجام شد!\n\n" +
-                    "زمان محاسبات: %.2f میلی‌ثانیه\n\n" +
-                    "سرعت محاسبات: %.2f میلیون عملیات در ثانیه\n\n" +
-                    "امتیاز آزمایشی: %d",
-                    elapsedTime,
-                    speed,
-                    (speed * 1000).toInt()
-                )
-
-                testButton.isEnabled = true
-                testButton.text = "تکرار تست پردازنده"
-            }
-        }.start()
-    }
-
-    private fun getCpuName(): String {
-        return try {
-            val lines = File("/proc/cpuinfo").readLines()
-
-            val cpuLine = lines.firstOrNull {
-                it.startsWith("model name") ||
-                it.startsWith("Hardware") ||
-                it.startsWith("Processor")
-            }
-
-            cpuLine?.substringAfter(":")?.trim()
-                ?: Build.HARDWARE
-        } catch (e: Exception) {
-            Build.HARDWARE
+        for (game in games) {
+            val result = checkGame(game)
+            addRow(
+                root,
+                game.name,
+                result.first + "\n" + result.second
+            )
         }
     }
 
-    private fun getTotalRam(): String {
+    private fun checkGame(game: Game): Pair<String, String> {
+        val failures = mutableListOf<String>()
+
+        if (game.android != null &&
+            Build.VERSION.SDK_INT < game.android
+        ) failures.add("نسخه اندروید کافی نیست")
+
+        val ram = getRamGb()
+        if (game.ram != null && ram != null && ram < game.ram) {
+            failures.add("RAM کمتر از حداقل اعلام‌شده است")
+        }
+
+        val storage = getFreeStorageGb()
+        if (game.storage != null &&
+            storage != null && storage < game.storage
+        ) failures.add("فضای آزاد کافی نیست")
+
+        val gl = getGlNumber()
+        if (game.gl != null && gl != null && gl < game.gl) {
+            failures.add("نسخه OpenGL ES کافی نیست")
+        }
+
+        if (game.cores != null &&
+            Runtime.getRuntime().availableProcessors() < game.cores
+        ) failures.add("تعداد هسته‌های قابل استفاده کافی نیست")
+
+        if (game.bit64 && !is64Bit()) {
+            failures.add("پشتیبانی ۶۴ بیتی تأیید نشده است")
+        }
+
+        if (failures.isNotEmpty()) {
+            return Pair(
+                "برخی حداقل‌ها تأمین نشده",
+                failures.joinToString("، ")
+            )
+        }
+
+        if (game.extra.isNotEmpty()) {
+            return Pair(
+                "نیازمند بررسی بیشتر",
+                game.extra
+            )
+        }
+
+        return Pair(
+            "حداقل‌های اعلام‌شده را دارد",
+            "اجرای روان تضمین نمی‌شود."
+        )
+    }
+
+    private fun getRamGb(): Double? {
         return try {
             val line = File("/proc/meminfo").readLines()
                 .firstOrNull { it.startsWith("MemTotal:") }
+                ?: return null
 
-            val kb = line?.filter { it.isDigit() }?.toLongOrNull()
-                ?: return "نامشخص"
+            val kb = line.filter { it.isDigit() }.toLongOrNull()
+                ?: return null
 
-            val gb = kb / 1024.0 / 1024.0
+            kb / 1024.0 / 1024.0
+        } catch (e: Exception) {
+            null
+        }
+    }
 
-            String.format(Locale.US, "%.2f GB", gb)
+    private fun getFreeStorageGb(): Double? {
+        return try {
+            val stat = StatFs(Environment.getDataDirectory().path)
+            val bytes = stat.availableBlocks.toLong() * stat.blockSize.toLong()
+            bytes / 1024.0 / 1024.0 / 1024.0
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun formatGb(value: Double?): String {
+        return if (value == null) {
+            "نامشخص"
+        } else {
+            String.format(Locale.US, "%.2f GB", value)
+        }
+    }
+
+    private fun getAbi(): String {
+        return if (Build.VERSION.SDK_INT >= 21) {
+            Build.SUPPORTED_ABIS.joinToString(", ")
+        } else {
+            Build.CPU_ABI
+        }
+    }
+
+    private fun is64Bit(): Boolean {
+        return if (Build.VERSION.SDK_INT >= 21) {
+            Build.SUPPORTED_64_BIT_ABIS.isNotEmpty()
+        } else {
+            false
+        }
+    }
+
+    private fun getGlNumber(): Int? {
+        return try {
+            val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+            val version = manager.deviceConfigurationInfo.reqGlEsVersion
+            if (version == 0) null else version
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun getGlVersion(): String {
+        val version = getGlNumber() ?: return "نامشخص"
+        val major = version shr 16
+        val minor = version and 0xffff
+        return "$major.$minor"
+    }
+
+    private fun getBatteryInfo(): String {
+        return try {
+            val intent = registerReceiver(
+                null,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            ) ?: return "نامشخص"
+
+            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+
+            if (level < 0 || scale <= 0) {
+                "نامشخص"
+            } else {
+                "${level * 100 / scale} درصد"
+            }
         } catch (e: Exception) {
             "نامشخص"
+        }
+    }
+
+    private fun getCameraCount(): String {
+        return try {
+            if (Build.VERSION.SDK_INT >= 21) {
+                val manager = getSystemService(CAMERA_SERVICE) as CameraManager
+                manager.cameraIdList.size.toString()
+            } else {
+                if (packageManager.hasSystemFeature(
+                    PackageManager.FEATURE_CAMERA
+                )) "حداقل ۱" else "ندارد"
+            }
+        } catch (e: Exception) {
+            "نامشخص"
+        }
+    }
+
+    private fun getSensorCount(): String {
+        return try {
+            val manager = getSystemService(SENSOR_SERVICE) as SensorManager
+            manager.getSensorList(Sensor.TYPE_ALL).size.toString()
+        } catch (e: Exception) {
+            "نامشخص"
+        }
+    }
+
+    private fun getSensorNames(): String {
+        return try {
+            val manager = getSystemService(SENSOR_SERVICE) as SensorManager
+            val names = manager.getSensorList(Sensor.TYPE_ALL)
+                .take(10)
+                .map { it.name }
+
+            if (names.isEmpty()) "نامشخص"
+            else names.joinToString("، ")
+        } catch (e: Exception) {
+            "نامشخص"
+        }
+    }
+
+    private fun supported(feature: String): String {
+        return if (packageManager.hasSystemFeature(feature)) {
+            "پشتیبانی می‌شود"
+        } else {
+            "شناسایی نشد"
         }
     }
 }
