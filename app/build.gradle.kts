@@ -10,7 +10,7 @@ android {
     defaultConfig {
         applicationId = "com.aliasan.phonepower"
         minSdk = 14
-        targetSdk = 28
+        targetSdk = 35
 
         versionCode = 1
         versionName = "1.0"
